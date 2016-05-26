@@ -30,6 +30,7 @@ try:
 except ImportError:
     django_filters = None
 
+import rest_framework_swagger as rfs
 
 def get_view_description(view_cls, html=False, docstring=None):
     if docstring is not None:
@@ -1064,6 +1065,10 @@ class YAMLDocstringParser(object):
         """
         Retrieves response error codes from YAML object
         """
+        version = rfs.SWAGGER_SETTINGS['swagger_version'].replace('.', '_')
+        return getattr(self, '_get_response_messages_' + version)()
+
+    def _get_response_messages_1_2(self):
         messages = []
         response_messages = self.object.get('responseMessages', [])
         for message in response_messages:
@@ -1074,29 +1079,123 @@ class YAMLDocstringParser(object):
             })
         return messages
 
+    def _get_response_messages_2_0(self):
+        messages = []
+        response_messages = self.object.get('responses', {})
+        for code, message in response_messages.items():
+            messages.append({
+                'code': code,
+                'message': message.get('description', None),
+                'responseModel': message.get('schema', None),
+            })
+        return messages
+
     def get_view_mocker(self, callback):
         view_mocker = self.object.get('view_mocker', lambda a: a)
         if isinstance(view_mocker, six.string_types):
             view_mocker = self._load_class(view_mocker, callback)
         return view_mocker
 
-    def get_parameters(self, callback):
+    def get_item_1_2(self, item, callback):
         """
-        Retrieves parameters from YAML object
-        """
-        params = []
-        fields = self.object.get('parameters', [])
-        for field in fields:
-            param_type = field.get('paramType', None)
-            if param_type not in self.PARAM_TYPES:
-                param_type = 'form'
+        Retrieves an item from YAML object
+        """        
+        param_type = item.get('paramType', None)
+        if param_type not in self.PARAM_TYPES:
+            param_type = 'form'
 
+        # Data Type & Format
+        # See:
+        # https://github.com/wordnik/swagger-core/wiki/1.2-transition#wiki-additions-2
+        # https://github.com/wordnik/swagger-core/wiki/Parameters
+        data_type = item.get('type', 'string')
+        pytype = item.get('pytype', None)
+        if pytype is not None:
+            try:
+                serializer = self._load_class(pytype, callback)
+                data_type = IntrospectorHelper.get_serializer_name(
+                    serializer)
+            except (ImportError, ValueError):
+                pass
+        if param_type in ['path', 'query', 'header']:
+            if data_type not in BaseMethodIntrospector.PRIMITIVES:
+                data_type = 'string'
+
+        # Data Format
+        data_format = item.get('format', None)
+
+        f = {
+            'paramType': param_type,
+            'name': item.get('name', None),
+            'description': item.get('description', ''),
+            'required': item.get('required', False),
+        }
+
+        normalize_data_format(data_type, data_format, f)
+
+        if item.get('defaultValue', None) is not None:
+            f['defaultValue'] = item.get('defaultValue', None)
+
+        # Allow Multiple Values &f=1,2,3,4
+        if item.get('allowMultiple'):
+            f['allowMultiple'] = True
+
+        if f['type'] == 'array':
+            items = item.get('items', {})
+            elt_data_type = items.get('type', 'string')
+            elt_data_format = items.get('type', 'format')
+            f['items'] = {
+            }
+            normalize_data_format(elt_data_type, elt_data_format, f['items'])
+
+            uniqueItems = item.get('uniqueItems', None)
+            if uniqueItems is not None:
+                f['uniqueItems'] = uniqueItems
+
+        # Min/Max are optional
+        if 'minimum' in item and data_type == 'integer':
+            f['minimum'] = str(item.get('minimum', 0))
+
+        if 'maximum' in item and data_type == 'integer':
+            f['maximum'] = str(item.get('maximum', 0))
+
+        # enum options
+        enum = item.get('enum', [])
+        if enum:
+            f['enum'] = enum
+
+        # File support
+        if f['type'] == 'file':
+            f['paramType'] = 'body'
+
+        return f
+
+    def get_item_2_0(self, item, callback):
+        """
+        Retrieves an item from YAML object
+        """        
+        param_type = item.get('in', None)
+        if param_type not in self.PARAM_TYPES:
+            param_type = 'form'
+
+        f = {
+            'in': param_type,
+            'name': item.get('name', None),
+            'description': item.get('description', ''),
+            'required': item.get('required', False),
+        }
+
+        if param_type == 'body' or item.get('type') == 'file':
+            f['in'] = 'body'
+            f['schema'] = item.get('schema')
+        else:
             # Data Type & Format
             # See:
             # https://github.com/wordnik/swagger-core/wiki/1.2-transition#wiki-additions-2
             # https://github.com/wordnik/swagger-core/wiki/Parameters
-            data_type = field.get('type', 'string')
-            pytype = field.get('pytype', None)
+            data_type = item.get('type', 'string')
+            f['type'] = data_type
+            pytype = item.get('pytype', None)
             if pytype is not None:
                 try:
                     serializer = self._load_class(pytype, callback)
@@ -1109,57 +1208,79 @@ class YAMLDocstringParser(object):
                     data_type = 'string'
 
             # Data Format
-            data_format = field.get('format', None)
+            f['format'] = item.get('format', None)
 
-            f = {
-                'paramType': param_type,
-                'name': field.get('name', None),
-                'description': field.get('description', ''),
-                'required': field.get('required', False),
-            }
+            if item.get('default', None) is not None:
+                f['default'] = item.get('default', None)
 
-            normalize_data_format(data_type, data_format, f)
-
-            if field.get('defaultValue', None) is not None:
-                f['defaultValue'] = field.get('defaultValue', None)
-
-            # Allow Multiple Values &f=1,2,3,4
-            if field.get('allowMultiple'):
-                f['allowMultiple'] = True
+            if item.get('collectionFormat', None) is not None:
+                f['collectionFormat'] = item.get('collectionFormat', None)
 
             if f['type'] == 'array':
-                items = field.get('items', {})
-                elt_data_type = items.get('type', 'string')
-                elt_data_format = items.get('type', 'format')
-                f['items'] = {
-                }
-                normalize_data_format(elt_data_type, elt_data_format, f['items'])
-
-                uniqueItems = field.get('uniqueItems', None)
-                if uniqueItems is not None:
-                    f['uniqueItems'] = uniqueItems
+                items = item.get('items', {})
+                f['items'] = self.get_item_2_0(items, callback)
+                if 'maxItems' in item:
+                    f['maxItems'] = int(item.get('maxItems'))
+                if 'minItems' in item:
+                    f['minItems'] = int(item.get('minItems'))
+                if 'uniqueItems' in item:
+                    f['uniqueItems'] = bool(item.get('uniqueItems'))
 
             # Min/Max are optional
-            if 'minimum' in field and data_type == 'integer':
-                f['minimum'] = str(field.get('minimum', 0))
+            if f['type'] == 'integer':
+                if 'minimum' in item:
+                    f['minimum'] = float(item.get('minimum'))
+                if 'maximum' in item:
+                    f['maximum'] = float(item.get('maximum'))
+                if 'exclusiveMaximum' in item:
+                    f['exclusiveMaximum'] = bool(item.get('exclusiveMaximum'))
+                if 'exclusiveMinimum' in item:
+                    f['exclusiveMinimum'] = bool(item.get('exclusiveMinimum'))
+                if 'multipleOf' in item:
+                    f['multipleOf'] = float(item.get('multipleOf'))
 
-            if 'maximum' in field and data_type == 'integer':
-                f['maximum'] = str(field.get('maximum', 0))
+            elif f['type'] == 'string':
+                if 'maxLength' in item:
+                    f['maxLength'] = int(item.get('maxLength'))
+                if 'minLength' in item:
+                    f['minLength'] = int(item.get('minLength'))
+                if 'pattern' in item:
+                    f['pattern'] = str(item.get('pattern'))
 
             # enum options
-            enum = field.get('enum', [])
+            enum = item.get('enum', [])
             if enum:
                 f['enum'] = enum
 
-            # File support
-            if f['type'] == 'file':
-                f['paramType'] = 'body'
+        return f
 
-            params.append(f)
+    def get_parameters(self, callback):
+        """
+        Retrieves parameters from YAML object
+        """
+        params = []
+        fields = self.object.get('parameters', [])
+        
+        if rfs.SWAGGER_SETTINGS['swagger_version'] == '1.2':
+            for field in fields:
+                params.append(self.get_item_1_2(field, callback))
+        else:
+            for field in fields:
+                f = self.get_item_2_0(field, callback)
+                f['allowEmptyValue'] = field.get('allowEmptyValue', False)
+                params.append(f)
 
         return params
 
     def discover_parameters(self, inspector):
+        """
+        Retrieves response error codes from YAML object
+        """
+        version = rfs.SWAGGER_SETTINGS['swagger_version'].replace('.', '_')
+        return getattr(self, '_discover_parameters_' + version)(inspector)
+
+
+    def _discover_parameters_1_2(self, inspector):
         """
         Applies parameters strategy for parameters discovered
         from method and docstring
@@ -1190,6 +1311,45 @@ class YAMLDocstringParser(object):
                     param['required'] = False
 
         return parameters
+
+    def _discover_parameters_2_0(self, inspector):
+        """
+        Applies parameters strategy for parameters discovered
+        from method and docstring
+        """
+        parameters = []
+        docstring_params = self.get_parameters(inspector.callback)
+        method_params = inspector.get_parameters()
+
+        # paramType may differ, overwrite first
+        # so strategy can be applied
+        for meth_param in method_params:
+            for doc_param in docstring_params:
+                if doc_param['name'] == meth_param['name']:
+                    if 'in' in doc_param:
+                        meth_param['in'] = doc_param['in']
+
+        for param_type in self.PARAM_TYPES:
+            if self.should_omit_parameters(param_type):
+                continue
+            parameters += self._apply_strategy(
+                param_type, method_params, docstring_params
+            )
+
+        # PATCH requests expects all fields except path fields to be optional
+        if inspector.get_http_method() == "PATCH":
+            for param in parameters:
+                if 'in' in param and param['in'] != 'path':
+                    param['required'] = False
+
+        for param in parameters:
+            if 'in' in param:
+                if param['in'] == 'formData':
+                    param['in'] = 'form'                
+                param['paramType'] = param['in']
+                del param['in']
+
+        return parameters        
 
     def should_omit_parameters(self, param_type):
         """

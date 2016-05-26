@@ -15,7 +15,7 @@ from rest_framework.utils import formatting
 
 from rest_framework_swagger.urlparser import UrlParser
 from rest_framework_swagger.apidocview import APIDocView
-from rest_framework_swagger.docgenerator import DocumentationGenerator
+from rest_framework_swagger.docgenerator import DocumentationGenerator_1_2, DocumentationGenerator_2_0
 
 import rest_framework_swagger as rfs
 
@@ -108,7 +108,7 @@ class SwaggerUIView(View):
             raise PermissionDenied()
 
 
-class SwaggerResourcesView(APIDocView):
+class Swagger1_2ResourcesView(APIDocView):
     renderer_classes = (JSONRenderer, )
 
     def get(self, request, *args, **kwargs):
@@ -151,12 +151,12 @@ class SwaggerResourcesView(APIDocView):
         return resources
 
 
-class SwaggerApiView(APIDocView):
+class Swagger1_2ApiView(APIDocView):
     renderer_classes = (JSONRenderer, )
 
     def get(self, request, path, *args, **kwargs):
         apis = self.get_apis_for_resource(path)
-        generator = DocumentationGenerator(for_user=request.user)
+        generator = DocumentationGenerator_1_2(for_user=request.user)
         return Response({
             'apiVersion': rfs.SWAGGER_SETTINGS.get('api_version', ''),
             'swaggerVersion': '1.2',
@@ -177,3 +177,47 @@ class SwaggerApiView(APIDocView):
         authorized_apis = filter(lambda a: self.handle_resource_access(self.request, a['pattern']), apis)
         authorized_apis_list = list(authorized_apis)
         return authorized_apis_list
+
+class Swagger2_0ApiView(APIDocView):
+    renderer_classes = (JSONRenderer, )
+
+    def get(self, request, path, *args, **kwargs):
+        apis = self.get_apis()
+        generator = DocumentationGenerator_2_0(for_user=request.user)
+        return Response({
+            'swagger': '2.0',                
+            'basePath': self.get_base_path(),
+            'paths': generator.generate(apis),
+            'definitions': generator.get_models(apis),
+            'info': rfs.SWAGGER_SETTINGS.get('info', {
+                'contact': '',
+                'description': '',
+                'license': '',
+                'termsOfService': '',
+                'title': '',
+                'version': '',
+            }),
+        })  
+
+    def get_base_path(self):
+        try:
+            base_path = rfs.SWAGGER_SETTINGS['base_path']
+        except KeyError:
+            return self.request.build_absolute_uri(
+                self.request.path).rstrip('/')
+        else:
+            protocol = 'https' if self.request.is_secure() else 'http'
+            return '{0}://{1}/{2}'.format(protocol, base_path, 'api-docs')                   
+
+    def get_apis(self):
+        urlparser = UrlParser()
+        urlconf = getattr(self.request, "urlconf", None)
+        exclude_url_names = rfs.SWAGGER_SETTINGS.get('exclude_url_names')
+        exclude_namespaces = rfs.SWAGGER_SETTINGS.get('exclude_namespaces')
+        apis = urlparser.get_apis(urlconf=urlconf,
+                                  exclude_url_names=exclude_url_names,
+                                  exclude_namespaces=exclude_namespaces)
+        authorized_apis = filter(lambda a: self.handle_resource_access(self.request, a['pattern']), apis)
+        authorized_apis_list = list(authorized_apis)
+        return authorized_apis_list
+

@@ -35,7 +35,7 @@ import rest_framework
 
 from .decorators import wrapper_to_func, func_to_wrapper
 from .urlparser import UrlParser
-from .docgenerator import DocumentationGenerator
+from .docgenerator import DocumentationGenerator_1_2
 from .introspectors import ViewSetIntrospector, APIViewIntrospector, \
     WrappedAPIViewMethodIntrospector, IntrospectorHelper, \
     APIViewMethodIntrospector, get_data_type
@@ -114,7 +114,7 @@ class HTTPSTest(TestCase):
         from django.utils.six.moves.urllib import parse
         urls = import_module(settings.ROOT_URLCONF)
         urls.urlpatterns = self.url_patterns
-        response = self.client.get("/swagger/api-docs/",
+        response = self.client.get("/swagger/api-docs/v1.2/",
                                    **{'wsgi.url_scheme': 'https',
                                       'SERVER_PORT': 443})
         json = parse_json(response)
@@ -133,7 +133,7 @@ base_path_SETTINGS = {
 class DocumentationGeneratorMixin(object):
     """ Mixes into TestCase subclasses to provide a `get_documentation_generator` method. """
     def get_documentation_generator(self, for_user=AnonymousUser()):
-        documentation_generator = DocumentationGenerator(for_user=for_user)
+        documentation_generator = DocumentationGenerator_1_2(for_user=for_user)
         return documentation_generator
 
 
@@ -150,7 +150,7 @@ class OverrideBasePathTest(TestCase):
         from django.utils.six.moves.urllib import parse
         urls = import_module(settings.ROOT_URLCONF)
         urls.urlpatterns = self.url_patterns
-        response = self.client.get("/swagger/api-docs/")
+        response = self.client.get("/swagger/api-docs/v1.2/")
         json = parse_json(response)
         base_url = parse.urlparse(json['basePath'])
         self.assertEqual('http', base_url.scheme)
@@ -598,7 +598,7 @@ class DocumentationGeneratorTest(TestCase, DocumentationGeneratorMixin):
         url_patterns = patterns('', url(r'my-api/', SerializedAPI.as_view()))
         apis = urlparser.get_apis(url_patterns)
 
-        docgen = DocumentationGenerator()
+        docgen = DocumentationGenerator_1_2()
         models = docgen.get_models(apis)
 
         self.assertIn('CommentSerializer', models)
@@ -836,7 +836,7 @@ class DocumentationGeneratorTest(TestCase, DocumentationGeneratorMixin):
         apis = urlparser.get_apis(url_patterns)
         api = apis[0]
         self.assertIn('pk', api['pattern'].regex.pattern)
-        generator = DocumentationGenerator()
+        generator = DocumentationGenerator_1_2()
         introspector = generator.get_introspector(api, apis)
         method_introspectors = get_introspectors(introspector)
         method_introspectors['retrieve'].get_yaml_parser()
@@ -2779,6 +2779,7 @@ if platform.python_version_tuple()[:2] != ('3', '2'):
         build some swagger endpoints, and run swagger's JSON schema on the results.
         """
         def setUp(self):
+            DEFAULT_SWAGGER_SETTINGS['swagger_version'] = '1.2'
             from json import loads
             self.schemas = {}
             schema_dir = 'schemas/v1.2'
@@ -2816,11 +2817,11 @@ if platform.python_version_tuple()[:2] != ('3', '2'):
             urls.urlpatterns = self.url_patterns
 
             validator = self.get_validator("resourceListing")
-            response = self.client.get("/swagger/api-docs/")
+            response = self.client.get("/swagger/api-docs/v1.2/")
             json = parse_json(response)
             validator.validate(json)
             validator = self.get_validator("apiDeclaration")
-            response = self.client.get("/swagger/api-docs/a-view")
+            response = self.client.get("/swagger/api-docs/v1.2/a-view")
             json = parse_json(response)
             self.assertIn("KitchenSinkSerializer", json['models'])
             validator.validate(json)
@@ -2875,11 +2876,11 @@ if platform.python_version_tuple()[:2] != ('3', '2'):
             urls.urlpatterns = self.url_patterns
 
             validator = self.get_validator("resourceListing")
-            response = self.client.get("/swagger/api-docs/")
+            response = self.client.get("/swagger/api-docs/v1.2/")
             json = parse_json(response)
             validator.validate(json)
             validator = self.get_validator("apiDeclaration")
-            response = self.client.get("/swagger/api-docs/a-view")
+            response = self.client.get("/swagger/api-docs/v1.2/a-view")
             json = parse_json(response)
             validator.validate(json)
             self.assertEqual('object', json['apis'][0]['operations'][0]['type'])
@@ -2923,11 +2924,11 @@ if platform.python_version_tuple()[:2] != ('3', '2'):
             urls.urlpatterns = self.url_patterns
 
             validator = self.get_validator("resourceListing")
-            response = self.client.get("/swagger/api-docs/")
+            response = self.client.get("/swagger/api-docs/v1.2/")
             json = parse_json(response)
             validator.validate(json)
             validator = self.get_validator("apiDeclaration")
-            response = self.client.get("/swagger/api-docs/a-view")
+            response = self.client.get("/swagger/api-docs/v1.2/a-view")
             json = parse_json(response)
             validator.validate(json)
 
@@ -2948,10 +2949,183 @@ if platform.python_version_tuple()[:2] != ('3', '2'):
             urls.urlpatterns = self.url_patterns
 
             validator = self.get_validator("resourceListing")
-            response = self.client.get("/swagger/api-docs/")
+            response = self.client.get("/swagger/api-docs/v1.2/")
             json = parse_json(response)
             validator.validate(json)
             validator = self.get_validator("apiDeclaration")
-            response = self.client.get("/swagger/api-docs/a-view")
+            response = self.client.get("/swagger/api-docs/v1.2/a-view")
             json = parse_json(response)
             validator.validate(json)
+
+
+
+
+    # class Swagger2_0Tests(TestCase):
+    #     """
+    #     build some swagger endpoints, and run swagger's JSON schema on the results.
+    #     """
+    #     def setUp(self):
+    #         DEFAULT_SWAGGER_SETTINGS['swagger_version'] = '2.0'
+    #         from json import loads
+    #         self.schemas = {}
+    #         schema_dir = 'schemas/v2.0'
+    #         for schema_file in [x for x in os.listdir(schema_dir)
+    #                             if x.endswith('.json')]:
+    #             with open(os.path.join(schema_dir, schema_file)) as f:
+    #                 schema = loads(f.read())
+    #                 self.schemas[schema_file] = schema
+
+    #     def get_validator(self, schema_name):
+    #         from jsonschema import Draft4Validator
+    #         validator = Draft4Validator(self.schemas[schema_name + '.json'])
+
+    #         def http_handler(uri):
+    #             from django.utils.six.moves.urllib import parse
+    #             urp = parse.urlparse(uri)
+    #             paff = os.path.basename(urp.path)
+    #             return self.schemas[paff]
+    #         validator.resolver.handlers['http'] = http_handler
+    #         return validator
+
+    #     def test1(self):
+    #         class MockApiView(APIView):
+    #             def get_serializer_class(self):
+    #                 return KitchenSinkSerializer
+
+    #             def get(self, request):
+    #                 pass
+    #         self.url_patterns = patterns(
+    #             '',
+    #             url(r'^a-view/?$', MockApiView.as_view(), name='a test view'),
+    #             url(r'^swagger/', include('rest_framework_swagger.urls')),
+    #         )
+    #         urls = import_module(settings.ROOT_URLCONF)
+    #         urls.urlpatterns = self.url_patterns
+
+    #         validator = self.get_validator("resourceListing")
+    #         response = self.client.get("/swagger/api-docs/v2.0/")
+    #         json = parse_json(response)
+    #         validator.validate(json)
+
+    #     def test_yaml_parameters(self):
+    #         class MockApiView(APIView):
+    #             """
+    #             ---
+    #             GET:
+    #                 parameters:
+    #                     - name: bob
+    #                       type: string
+    #                       enum:
+    #                           - taco
+    #                           - enchilada
+    #                     - name: rob
+    #                       type: string
+    #                       defaultValue: 'lewis'
+    #                     - name: i1
+    #                       type: integer
+    #                       format: int32
+    #                     - name: i2
+    #                       type: integer
+    #                       format: int64
+    #                     - name: idurp
+    #                       type: integer
+    #                       format: smokey
+    #                       minimum: 1
+    #                       maximum: 100
+    #                     - name: mandy
+    #                       type: string
+    #                       allowMultiple: true
+    #                       uniqueItems: true
+    #                     - name: sandy
+    #                       type: array
+    #                       items:
+    #                           type: integer
+    #                     - name: candy
+    #                       type: array
+    #                       items:
+    #                           type: integer
+    #                       uniqueItems: true
+    #             """
+    #             def get(self, request):
+    #                 pass
+    #         self.url_patterns = patterns(
+    #             '',
+    #             url(r'^a-view/?$', MockApiView.as_view(), name='a test view'),
+    #             url(r'^swagger/', include('rest_framework_swagger.urls')),
+    #         )
+    #         urls = import_module(settings.ROOT_URLCONF)
+    #         urls.urlpatterns = self.url_patterns
+
+    #         validator = self.get_validator("resourceListing")
+    #         response = self.client.get("/swagger/api-docs/v2.0/")
+    #         json = parse_json(response)
+    #         validator.validate(json)
+    #         self.assertEqual('object', json['apis'][0]['operations'][0]['type'])
+    #         parameters = json['apis'][0]['operations'][0]['parameters']
+    #         self.assertNotIn('format', parameters[0])
+    #         self.assertNotIn('defaultValue', parameters[0])
+    #         self.assertNotIn('format', parameters[1])
+    #         self.assertEqual('lewis', parameters[1]['defaultValue'])
+    #         self.assertEqual('', parameters[1]['description'])
+    #         self.assertEqual('i1', parameters[2]['name'])
+    #         self.assertEqual('int32', parameters[2]['format'])
+    #         self.assertEqual('i2', parameters[3]['name'])
+    #         self.assertEqual('int64', parameters[3]['format'])
+    #         self.assertEqual('idurp', parameters[4]['name'])
+    #         self.assertEqual('int32', parameters[4]['format'])
+    #         self.assertEqual('sandy', parameters[6]['name'])
+    #         self.assertEqual('integer', parameters[6]['items']['type'])
+    #         self.assertEqual('int32', parameters[6]['items']['format'])
+    #         self.assertEqual('candy', parameters[7]['name'])
+    #         self.assertIn('uniqueItems', parameters[7])
+
+    #     def test_raw_array(self):
+    #         class MockApiView(APIView):
+    #             """
+    #             ---
+    #             GET:
+    #                 parameters:
+    #                     - name: bob
+    #                       type: array
+    #                       items:
+    #                         type: string
+    #             """
+    #             def get(self, request):
+    #                 pass
+    #         self.url_patterns = patterns(
+    #             '',
+    #             url(r'^a-view/?$', MockApiView.as_view(), name='a test view'),
+    #             url(r'^swagger/', include('rest_framework_swagger.urls')),
+    #         )
+    #         urls = import_module(settings.ROOT_URLCONF)
+    #         urls.urlpatterns = self.url_patterns
+
+    #         validator = self.get_validator("resourceListing")
+    #         response = self.client.get("/swagger/api-docs/v2.0/")
+    #         json = parse_json(response)
+    #         validator.validate(json)
+
+    #     def test_old_parameters(self):
+
+    #         class MockApiView(APIView):
+    #             def get(self, request):
+    #                 """
+    #                 taco -- a place to my food
+    #                 """
+    #                 pass
+    #         self.url_patterns = patterns(
+    #             '',
+    #             url(r'^a-view/?$', MockApiView.as_view(), name='a test view'),
+    #             url(r'^swagger/', include('rest_framework_swagger.urls')),
+    #         )
+    #         urls = import_module(settings.ROOT_URLCONF)
+    #         urls.urlpatterns = self.url_patterns
+
+    #         validator = self.get_validator("resourceListing")
+    #         response = self.client.get("/swagger/api-docs/")
+    #         json = parse_json(response)
+    #         validator.validate(json)
+    #         validator = self.get_validator("apiDeclaration")
+    #         response = self.client.get("/swagger/api-docs/a-view")
+    #         json = parse_json(response)
+    #         validator.validate(json)
