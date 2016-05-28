@@ -181,33 +181,23 @@ class Swagger1_2ApiView(APIDocView):
 class Swagger2_0ApiView(APIDocView):
     renderer_classes = (JSONRenderer, )
 
-    def get(self, request, path, *args, **kwargs):
+    def get(self, request, *args, **kwargs):
         apis = self.get_apis()
         generator = DocumentationGenerator_2_0(for_user=request.user)
         return Response({
             'swagger': '2.0',                
-            'basePath': self.get_base_path(),
+            'basePath': rfs.SWAGGER_SETTINGS['api_path'],
             'paths': generator.generate(apis),
             'definitions': generator.get_models(apis),
             'info': rfs.SWAGGER_SETTINGS.get('info', {
-                'contact': '',
+                'contact': {},
                 'description': '',
-                'license': '',
+                'license': {'name': ''},
                 'termsOfService': '',
                 'title': '',
                 'version': '',
             }),
         })  
-
-    def get_base_path(self):
-        try:
-            base_path = rfs.SWAGGER_SETTINGS['base_path']
-        except KeyError:
-            return self.request.build_absolute_uri(
-                self.request.path).rstrip('/')
-        else:
-            protocol = 'https' if self.request.is_secure() else 'http'
-            return '{0}://{1}/{2}'.format(protocol, base_path, 'api-docs')                   
 
     def get_apis(self):
         urlparser = UrlParser()

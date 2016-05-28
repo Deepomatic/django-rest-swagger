@@ -18,15 +18,6 @@ from .introspectors import (
 from .compat import OrderedDict
 
 class DocumentationGeneratorBase(object):
-    # Serializers defined in docstrings
-    explicit_serializers = set()
-
-    # Serializers defined in fields
-    fields_serializers = set()
-
-    # Response classes defined in docstrings
-    explicit_response_types = dict()
-
     def __init__(self, for_user=None):
 
         # unauthenticated user is expected to be in the form 'module.submodule.Class' if a value is present
@@ -38,7 +29,17 @@ class DocumentationGeneratorBase(object):
             unauthenticated_user_class = getattr(importlib.import_module(module_name), class_name)
             for_user = unauthenticated_user_class()
 
-        self.user = for_user    
+        self.user = for_user  
+
+        # Serializers defined in docstrings
+        self.explicit_serializers = set()
+
+        # Serializers defined in fields
+        self.fields_serializers = set()
+
+        # Response classes defined in docstrings
+        self.explicit_response_types = dict()
+ 
 
     def get_introspector(self, api, apis):
         path = api['path']
@@ -450,9 +451,6 @@ class DocumentationGenerator_2_0(DocumentationGeneratorBase):
 
             doc_parser = method_introspector.get_yaml_parser()
 
-            #serializer = self._get_method_serializer(method_introspector)
-            #response_type = self._get_method_response_type(doc_parser, serializer, introspector, method_introspector)
-
             operation = {
                 'summary':     method_introspector.get_summary(),
                 'description': method_introspector.get_notes(),
@@ -476,8 +474,8 @@ class DocumentationGenerator_2_0(DocumentationGeneratorBase):
 
             operation['parameters'] = parameters or []
 
+            responses = {}
             if response_messages:
-                responses = {}
                 for response in response_messages:
                     r = {
                         'description': response['message'] if response['message'] is not None else "",
@@ -485,7 +483,12 @@ class DocumentationGenerator_2_0(DocumentationGeneratorBase):
                     if response['responseModel'] is not None:
                         r['schema'] = response['responseModel']
                     responses[response['code']] = r
-                operation['responses'] = responses
+            else:
+                responses['default'] = {
+                    'description': 'Default response'
+                }
+            operation['responses'] = responses
+
             # operation.consumes
             consumes = doc_parser.get_consumes()
             if consumes:
@@ -503,7 +506,7 @@ class DocumentationGenerator_2_0(DocumentationGeneratorBase):
             #     }
             #     operation['type'] = 'array'
 
-            operations[method_introspector.get_http_method()] = operation
+            operations[method_introspector.get_http_method().lower()] = operation
 
         return operations
 
@@ -537,8 +540,7 @@ class DocumentationGenerator_2_0(DocumentationGeneratorBase):
                                        if k not in data['read_only'])
 
             models[w_name] = {
-                'id': w_name,
-                'required': [i for i in data['required'] if i in w_properties.keys()],
+                'type': 'object',
                 'properties': w_properties,
             }
 
@@ -550,17 +552,9 @@ class DocumentationGenerator_2_0(DocumentationGeneratorBase):
                                        if k not in data['write_only'])
 
             models[r_name] = {
-                'id': r_name,
-                'required': [i for i in r_properties.keys()],
+                'type': 'object',
                 'properties': r_properties,
             }
-
-            # Enable original model for testing purposes
-            # models[serializer_name] = {
-            #     'id': serializer_name,
-            #     'required': data['required'],
-            #     'properties': data['fields'],
-            # }
 
         models.update(self.explicit_response_types)
         models.update(self.fields_serializers)
@@ -584,41 +578,6 @@ class DocumentationGenerator_2_0(DocumentationGeneratorBase):
 
         serializer = method_inspector.get_response_serializer_class()
         return serializer
-
-    def _get_method_response_type(self, doc_parser, serializer,
-                                  view_inspector, method_inspector):
-        """
-        Returns response type for method.
-        This might be custom `type` from docstring or discovered
-        serializer class name.
-
-        Once custom `type` found in docstring - it'd be
-        registered in a scope
-        """
-        response_type = doc_parser.get_response_type()
-        if response_type is not None:
-            # Register class in scope
-            view_name = view_inspector.callback.__name__
-            view_name = view_name.replace('ViewSet', '')
-            view_name = view_name.replace('APIView', '')
-            view_name = view_name.replace('View', '')
-            response_type_name = "{view}{method}Response".format(
-                view=view_name,
-                method=method_inspector.method.title().replace('_', '')
-            )
-            self.explicit_response_types.update({
-                response_type_name: {
-                    "id": response_type_name,
-                    "properties": response_type
-                }
-            })
-            return response_type_name
-        else:
-            serializer_name = IntrospectorHelper.get_serializer_name(serializer)
-            if serializer_name is not None:
-                return serializer_name
-
-            return 'object'
 
     def _get_serializer_set(self, apis):
         """
@@ -717,21 +676,23 @@ class DocumentationGenerator_2_0(DocumentationGeneratorBase):
             if not description or description.strip() == '':
                 description = None
             f = {
-                'description': description,
-                'type': data_type,
-                'format': data_format,
-                'required': getattr(field, 'required', False),
-                'defaultValue': get_default_value(field),
-                'readOnly': getattr(field, 'read_only', None),
+                'type': data_type,                
+                'default': get_default_value(field),
             }
+
+            if description is not None:
+                f['description'] = description
+
+            if data_format is not None:
+                f['format'] = data_format                
 
             # Swagger type is a primitive, format is more specific
             if f['type'] == f['format']:
                 del f['format']
 
             # defaultValue of null is not allowed, it is specific to type
-            if f['defaultValue'] is None:
-                del f['defaultValue']
+            if f['default'] is None:
+                del f['default']
 
             # Min/Max values
             max_value = getattr(field, 'max_value', None)
