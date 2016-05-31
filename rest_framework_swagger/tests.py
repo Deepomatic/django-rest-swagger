@@ -1672,7 +1672,7 @@ class YAMLDocstringParserTests(TestCase, DocumentationGeneratorMixin):
         class_introspector = self.make_introspector(SerializedAPI)
         introspector = APIViewMethodIntrospector(class_introspector, 'POST')
         parser = introspector.get_yaml_parser()
-        params = parser.discover_parameters(introspector)
+        params = parser.discover_parameters_1_2(introspector)
 
         self.assertEqual(
             len(CommentSerializer().get_fields()) + 1,
@@ -1699,7 +1699,7 @@ class YAMLDocstringParserTests(TestCase, DocumentationGeneratorMixin):
         class_introspector = self.make_introspector(SerializedAPI)
         introspector = APIViewMethodIntrospector(class_introspector, 'POST')
         parser = introspector.get_yaml_parser()
-        params = parser.discover_parameters(introspector)
+        params = parser.discover_parameters_1_2(introspector)
 
         self.assertEqual(1, len(params))
 
@@ -1725,7 +1725,7 @@ class YAMLDocstringParserTests(TestCase, DocumentationGeneratorMixin):
         class_introspector = self.make_introspector(SerializedAPI)
         introspector = APIViewMethodIntrospector(class_introspector, 'POST')
         parser = introspector.get_yaml_parser()
-        params = parser.discover_parameters(introspector)
+        params = parser.discover_parameters_1_2(introspector)
 
         self.assertEqual(0, len(params))
 
@@ -1758,7 +1758,7 @@ class YAMLDocstringParserTests(TestCase, DocumentationGeneratorMixin):
         params = introspector.build_form_parameters()
         self.assertEqual(len(CommentSerializer().get_fields()), len(params))
 
-        params = parser.discover_parameters(introspector)
+        params = parser.discover_parameters_1_2(introspector)
         self.assertEqual(2, len(params))
         query_params = parser._filter_params(params, 'paramType', 'query')
         form_params = parser._filter_params(params, 'paramType', 'form')
@@ -1794,7 +1794,7 @@ class YAMLDocstringParserTests(TestCase, DocumentationGeneratorMixin):
         class_introspector = self.make_introspector(SerializedAPI)
         introspector = APIViewMethodIntrospector(class_introspector, 'POST')
         parser = introspector.get_yaml_parser()
-        params = parser.discover_parameters(introspector)
+        params = parser.discover_parameters_1_2(introspector)
         self.assertEqual(len(params), 1)
         self.assertIn('minimum', params[0])
         self.assertEqual(params[0]['minimum'], '1')

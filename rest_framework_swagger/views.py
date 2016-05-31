@@ -181,8 +181,8 @@ class Swagger1_2ApiView(APIDocView):
 class Swagger2_0ApiView(APIDocView):
     renderer_classes = (JSONRenderer, )
 
-    def get(self, request, *args, **kwargs):
-        apis = self.get_apis()
+    def get(self, request, path, *args, **kwargs):
+        apis = self.get_apis(path)
         generator = DocumentationGenerator_2_0(for_user=request.user)
         return Response({
             'swagger': '2.0',                
@@ -199,12 +199,12 @@ class Swagger2_0ApiView(APIDocView):
             }),
         })  
 
-    def get_apis(self):
+    def get_apis(self, path):
         urlparser = UrlParser()
         urlconf = getattr(self.request, "urlconf", None)
         exclude_url_names = rfs.SWAGGER_SETTINGS.get('exclude_url_names')
         exclude_namespaces = rfs.SWAGGER_SETTINGS.get('exclude_namespaces')
-        apis = urlparser.get_apis(urlconf=urlconf,
+        apis = urlparser.get_apis(urlconf=urlconf, filter_path=path,
                                   exclude_url_names=exclude_url_names,
                                   exclude_namespaces=exclude_namespaces)
         authorized_apis = filter(lambda a: self.handle_resource_access(self.request, a['pattern']), apis)

@@ -324,7 +324,7 @@ class DocumentationGenerator_1_2(DocumentationGeneratorBase):
                     err=doc_parser.yaml_error)
 
             response_messages = doc_parser.get_response_messages()
-            parameters = doc_parser.discover_parameters(
+            parameters = doc_parser.discover_parameters_1_2(
                 inspector=method_introspector)
 
             operation['parameters'] = parameters or []
@@ -462,7 +462,7 @@ class DocumentationGenerator_2_0(DocumentationGeneratorBase):
                     err=doc_parser.yaml_error)
 
             response_messages = doc_parser.get_response_messages()
-            parameters = doc_parser.discover_parameters(
+            parameters = doc_parser.discover_parameters_2_0(
                 inspector=method_introspector)
 
             for param in parameters:
@@ -690,7 +690,7 @@ class DocumentationGenerator_2_0(DocumentationGeneratorBase):
             if f['type'] == f['format']:
                 del f['format']
 
-            # defaultValue of null is not allowed, it is specific to type
+            # default of null is not allowed, it is specific to type
             if f['default'] is None:
                 del f['default']
 

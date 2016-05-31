@@ -552,6 +552,10 @@ def get_data_type(field):
             return 'hidden', 'hidden'
         elif isinstance(field, fields.ListField):
             return 'array', 'array'
+        elif isinstance(field, fields.JSONField):
+            return 'object', 'object'
+        elif isinstance(field, fields.DictField):
+            return 'object', 'object'            
         else:
             return 'string', 'string'
     else:
@@ -1272,15 +1276,7 @@ class YAMLDocstringParser(object):
 
         return params
 
-    def discover_parameters(self, inspector):
-        """
-        Retrieves response error codes from YAML object
-        """
-        version = rfs.SWAGGER_SETTINGS['swagger_version'].replace('.', '_')
-        return getattr(self, '_discover_parameters_' + version)(inspector)
-
-
-    def _discover_parameters_1_2(self, inspector):
+    def discover_parameters_1_2(self, inspector):
         """
         Applies parameters strategy for parameters discovered
         from method and docstring
@@ -1312,7 +1308,7 @@ class YAMLDocstringParser(object):
 
         return parameters
 
-    def _discover_parameters_2_0(self, inspector):
+    def discover_parameters_2_0(self, inspector):
         """
         Applies parameters strategy for parameters discovered
         from method and docstring
@@ -1348,6 +1344,9 @@ class YAMLDocstringParser(object):
                     param['in'] = 'form'                
                 param['paramType'] = param['in']
                 del param['in']
+            if 'defaultValue' in param:
+                param['default'] = param['defaultValue']
+                del param['defaultValue']
 
         return parameters        
 
