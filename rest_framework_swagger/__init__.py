@@ -34,10 +34,6 @@ def validate_info_2_0(provided_settings):
         if key not in provided_settings['info']:
             raise SwaggerSchemeException("Missing key '%s' for field 'info' in 'DEFAULT_SWAGGER_SETTINGS'. See https://github.com/OAI/OpenAPI-Specification/blob/master/versions/2.0.md#infoObject" % key)
 
-
-from django.conf import settings
-from django.test.signals import setting_changed
-
 def load_settings(provided_settings):
     global SWAGGER_SETTINGS
     SWAGGER_SETTINGS = provided_settings
@@ -63,8 +59,13 @@ def reload_settings(*args, **kwargs):
     if setting == 'SWAGGER_SETTINGS':
         load_settings(value)
 
-load_settings(getattr(settings,
-                      'SWAGGER_SETTINGS',
-                      DEFAULT_SWAGGER_SETTINGS))
-setting_changed.connect(reload_settings)
+try:  # Django settings are not configured when installing: import settings will fail
+    from django.conf import settings
+    from django.test.signals import setting_changed
 
+    load_settings(getattr(settings,
+                          'SWAGGER_SETTINGS',
+                          DEFAULT_SWAGGER_SETTINGS))
+    setting_changed.connect(reload_settings)
+except:
+    pass
