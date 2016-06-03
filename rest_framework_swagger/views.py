@@ -60,7 +60,7 @@ class SwaggerUIView(View):
         template_name = rfs.SWAGGER_SETTINGS.get('template_path')
         data = {
             'swagger_settings': {
-                'discovery_url': "%s/api-docs/" % get_full_base_path(request),
+                'discovery_url': "%s/api-docs/v1.2" % get_full_base_path(request),
                 'api_key': rfs.SWAGGER_SETTINGS.get('api_key', ''),
                 'api_version': rfs.SWAGGER_SETTINGS.get('api_version', ''),
                 'token_type': rfs.SWAGGER_SETTINGS.get('token_type'),
