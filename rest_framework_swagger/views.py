@@ -15,7 +15,7 @@ from rest_framework.utils import formatting
 
 from rest_framework_swagger.urlparser import UrlParser
 from rest_framework_swagger.apidocview import APIDocView
-from rest_framework_swagger.docgenerator import DocumentationGenerator_1_2, DocumentationGenerator_2_0
+from rest_framework_swagger.docgenerator import DocumentationGenerator
 
 import rest_framework_swagger as rfs
 
@@ -60,7 +60,7 @@ class SwaggerUIView(View):
         template_name = rfs.SWAGGER_SETTINGS.get('template_path')
         data = {
             'swagger_settings': {
-                'discovery_url': "%s/api-docs/v1.2" % get_full_base_path(request),
+                'discovery_url': "%s/api-docs" % get_full_base_path(request),
                 'api_key': rfs.SWAGGER_SETTINGS.get('api_key', ''),
                 'api_version': rfs.SWAGGER_SETTINGS.get('api_version', ''),
                 'token_type': rfs.SWAGGER_SETTINGS.get('token_type'),
@@ -107,83 +107,12 @@ class SwaggerUIView(View):
         else:
             raise PermissionDenied()
 
-
-class Swagger1_2ResourcesView(APIDocView):
-    renderer_classes = (JSONRenderer, )
-
-    def get(self, request, *args, **kwargs):
-        apis = [{'path': '/' + path} for path in self.get_resources()]
-        return Response({
-            'apiVersion': rfs.SWAGGER_SETTINGS.get('api_version', ''),
-            'swaggerVersion': '1.2',
-            'basePath': self.get_base_path(),
-            'apis': apis,
-            'info': rfs.SWAGGER_SETTINGS.get('info', {
-                'contact': '',
-                'description': '',
-                'license': '',
-                'licenseUrl': '',
-                'termsOfServiceUrl': '',
-                'title': '',
-            }),
-        })
-
-    def get_base_path(self):
-        try:
-            base_path = rfs.SWAGGER_SETTINGS['base_path']
-        except KeyError:
-            return self.request.build_absolute_uri(
-                self.request.path).rstrip('/')
-        else:
-            protocol = 'https' if self.request.is_secure() else 'http'
-            return '{0}://{1}/{2}'.format(protocol, base_path, 'api-docs')
-
-    def get_resources(self):
-        urlparser = UrlParser()
-        urlconf = getattr(self.request, "urlconf", None)
-        exclude_url_names = rfs.SWAGGER_SETTINGS.get('exclude_url_names')
-        exclude_namespaces = rfs.SWAGGER_SETTINGS.get('exclude_namespaces')
-        apis = urlparser.get_apis(urlconf=urlconf, exclude_url_names=exclude_url_names,
-                                  exclude_namespaces=exclude_namespaces)
-        authorized_apis = filter(lambda a: self.handle_resource_access(self.request, a['pattern']), apis)
-        authorized_apis_list = list(authorized_apis)
-        resources = urlparser.get_top_level_apis(authorized_apis_list)
-        return resources
-
-
-class Swagger1_2ApiView(APIDocView):
-    renderer_classes = (JSONRenderer, )
-
-    def get(self, request, path, *args, **kwargs):
-        apis = self.get_apis_for_resource(path)
-        generator = DocumentationGenerator_1_2(for_user=request.user)
-        return Response({
-            'apiVersion': rfs.SWAGGER_SETTINGS.get('api_version', ''),
-            'swaggerVersion': '1.2',
-            'basePath': self.api_full_uri.rstrip('/'),
-            'resourcePath': '/' + path,
-            'apis': generator.generate(apis),
-            'models': generator.get_models(apis),
-        })
-
-    def get_apis_for_resource(self, filter_path):
-        urlparser = UrlParser()
-        urlconf = getattr(self.request, "urlconf", None)
-        exclude_url_names = rfs.SWAGGER_SETTINGS.get('exclude_url_names')
-        exclude_namespaces = rfs.SWAGGER_SETTINGS.get('exclude_namespaces')
-        apis = urlparser.get_apis(urlconf=urlconf, filter_path=filter_path,
-                                  exclude_url_names=exclude_url_names,
-                                  exclude_namespaces=exclude_namespaces)
-        authorized_apis = filter(lambda a: self.handle_resource_access(self.request, a['pattern']), apis)
-        authorized_apis_list = list(authorized_apis)
-        return authorized_apis_list
-
-class Swagger2_0ApiView(APIDocView):
+class SwaggerApiView(APIDocView):
     renderer_classes = (JSONRenderer, )
 
     def get(self, request, path, *args, **kwargs):
         apis = self.get_apis(path)
-        generator = DocumentationGenerator_2_0(for_user=request.user)
+        generator = DocumentationGenerator(for_user=request.user)
         return Response({
             'swagger': '2.0',                
             'basePath': rfs.SWAGGER_SETTINGS['api_path'],

@@ -38,7 +38,110 @@ This project is built on the [Django REST Framework Docs](https://github.com/mar
     )
     ```
 
+4. Add ```SWAGGER_SETTINGS``` to Django configuration. Example:
+
+    ```python
+    SWAGGER_SETTINGS = {
+        'exclude_namespaces': [],
+        'api_path': '/',
+        'enabled_methods': [
+            'get',
+            'post',
+            'put',
+            'patch',
+            'delete'
+        ],
+        'api_key': '',
+        'is_authenticated': False,
+        'is_superuser': False,
+        'unauthenticated_user': 'django.contrib.auth.models.AnonymousUser',
+        'permission_denied_handler': None,
+        'resource_access_handler': None,
+        'base_path':'helloreverb.com/docs',
+        'info': {
+                'contact': {
+                    'name': 'API Team',
+                    'email': 'apiteam@wordnik.com'
+                },
+                'description': 'This is a sample server Petstore server. '
+                               'You can find out more about Swagger at '
+                               '<a href="http://swagger.wordnik.com">'
+                               'http://swagger.wordnik.com</a> '
+                               'or on irc.freenode.net, #swagger. '
+                               'For this sample, you can use the api key '
+                               '"special-key" to test '
+                               'the authorization filters',
+                'license': {
+                    'name': 'Apache 2.0',
+                    'url': 'http://www.apache.org/licenses/LICENSE-2.0.html'
+                },
+                'termsOfService': 'http://helloreverb.com/terms/',
+                'title': 'Swagger Sample App',
+                'version': '0.1',
+        },
+        'doc_expansion': 'none',
+    }
+    ```
+
 for more information, see the [documentation][docs].
+
+## YAML Format for Swagger 2.x
+
+This is an example for the new Swagger 2.x format:
+
+```python
+@api_view(["POST"])
+def foo_view(request):
+    """
+    Your docs
+    ---
+    # YAML (must be separated by `---`)
+
+    type:
+      name:
+        required: true
+        type: string
+      url:
+        required: false
+        type: url
+      created_at:
+        required: true
+        type: string
+        format: date-time
+
+    serializer: .serializers.FooSerializer
+    omit_serializer: false
+
+    parameters_strategy: merge
+    omit_parameters:
+        - path
+    parameters:
+        - name: name
+          description: Foobar long description goes here
+          required: true
+          type: string
+          in: form
+        - name: other_foo
+          in: query
+        - name: other_bar
+          in: query
+        - name: avatar
+          type: file
+
+    responses:
+        - code: 401
+          description: Not authenticated
+          schema: .serializers.ErrorSerializer
+
+    consumes:
+        - application/json
+        - application/xml
+    produces:
+        - application/json
+        - application/xml
+    """
+    ...
+```
 
 ## Requirements
 * Python (2.6.5+, 2.7, 3.2, 3.3, 3.4)

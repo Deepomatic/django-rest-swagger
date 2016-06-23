@@ -18,6 +18,7 @@ from django.utils.encoding import smart_text
 import rest_framework
 from rest_framework import viewsets
 from rest_framework.compat import apply_markdown
+from rest_framework.serializers import Serializer, BaseSerializer
 try:
     from rest_framework.fields import CurrentUserDefault
 except ImportError:
@@ -326,6 +327,10 @@ class BaseMethodIntrospector(object):
 
             if not form_params and body_params is not None:
                 params.append(body_params)
+        else:
+            for f in form_params:
+                f['in'] = 'query'
+            params += form_params
 
         if query_params:
             params += query_params
@@ -360,7 +365,7 @@ class BaseMethodIntrospector(object):
         return {
             'name': serializer_name,
             'type': serializer_name,
-            'paramType': 'body',
+            'in': 'body',
         }
 
     def build_path_parameters(self):
@@ -374,7 +379,7 @@ class BaseMethodIntrospector(object):
             params.append({
                 'name': param,
                 'type': 'string',
-                'paramType': 'path',
+                'in': 'path',
                 'required': True
             })
 
@@ -394,7 +399,7 @@ class BaseMethodIntrospector(object):
         for line in split_lines:
             param = line.split(' -- ')
             if len(param) == 2:
-                params.append({'paramType': 'query',
+                params.append({'in': 'query',
                                'name': param[0].strip(),
                                'description': param[1].strip(),
                                'type': 'string'})
@@ -412,7 +417,7 @@ class BaseMethodIntrospector(object):
             for name, filter_ in filter_class.base_filters.items():
                 data_type = 'string'
                 parameter = {
-                    'paramType': 'query',
+                    'in': 'query',
                     'name': name,
                     'description': filter_.label,
                 }
@@ -443,61 +448,84 @@ class BaseMethodIntrospector(object):
             if getattr(field, 'read_only', False):
                 continue
 
-            data_type, data_format = get_data_type(field) or ('string', 'string')
-            if data_type == 'hidden':
+            f = self._build_form_field(field)
+            if f is None:
                 continue
 
-            # guess format
-            # data_format = 'string'
-            # if data_type in self.PRIMITIVES:
-                # data_format = self.PRIMITIVES.get(data_type)[0]
-
-            choices = []
-            if data_type in BaseMethodIntrospector.ENUMS:
-                if isinstance(field.choices, list):
-                    choices = [k for k, v in field.choices]
-                elif isinstance(field.choices, dict):
-                    choices = [k for k, v in field.choices.items()]
-
-            if choices:
-                # guest data type and format
-                data_type, data_format = get_primitive_type(choices[0]) or ('string', 'string')
-
-            f = {
-                'paramType': 'form',
-                'name': name,
-                'description': getattr(field, 'help_text', '') or '',
-                'type': data_type,
-                'format': data_format,
-                'required': getattr(field, 'required', False),
-                'defaultValue': get_default_value(field),
-            }
-
-            # Swagger type is a primitive, format is more specific
-            if f['type'] == f['format']:
-                del f['format']
-
-            # defaultValue of null is not allowed, it is specific to type
-            if f['defaultValue'] is None:
-                del f['defaultValue']
-
-            # Min/Max values
-            max_value = getattr(field, 'max_value', None)
-            min_value = getattr(field, 'min_value', None)
-            if max_value is not None and data_type == 'integer':
-                f['minimum'] = min_value
-
-            if max_value is not None and data_type == 'integer':
-                f['maximum'] = max_value
-
-            # ENUM options
-            if choices:
-                f['enum'] = choices
-
+            f['in'] = 'formData'
+            f['name'] = name
             data.append(f)
 
         return data
 
+
+    def _build_form_field(self, field, item_object = False):
+        data_type, data_format = get_data_type(field) or ('string', 'string')
+        if data_type == 'hidden':
+            return None
+
+        # guess format
+        # data_format = 'string'
+        # if data_type in self.PRIMITIVES:
+            # data_format = self.PRIMITIVES.get(data_type)[0]
+
+        if data_type == 'array':
+            if isinstance(data_format, BaseSerializer) or isinstance(data_format, Serializer):
+                serializer_name = IntrospectorHelper.get_serializer_name(field)
+                items = {
+                    '$ref': "#/definitions/%s" % serializer_name
+                }
+            else:
+                items = self._build_form_field(data_format, item_object = True)
+            data_format = data_type
+
+        choices = []
+        if data_type in BaseMethodIntrospector.ENUMS:
+            if isinstance(field.choices, list):
+                choices = [k for k, v in field.choices]
+            elif isinstance(field.choices, dict):
+                choices = [k for k, v in field.choices.items()]
+
+        if choices:
+            # guest data type and format
+            data_type, data_format = get_primitive_type(choices[0]) or ('string', 'string')
+
+        description = getattr(field, 'help_text', '') or ''
+        f = {
+            'type': data_type,
+            'default': get_default_value(field),
+        }
+
+        if not item_object:
+            f['required'] = getattr(field, 'required', False)
+
+        if description:
+            f['description'] = description
+
+        if data_type == 'array':
+            f['items'] = items
+        else:
+            if f['type'] != data_format:
+                f['format'] = data_format,
+
+        # default of null is not allowed, it is specific to type
+        if f['default'] is None:
+            del f['default']
+
+        # Min/Max values
+        max_value = getattr(field, 'max_value', None)
+        min_value = getattr(field, 'min_value', None)
+        if max_value is not None and data_type == 'integer':
+            f['minimum'] = min_value
+
+        if max_value is not None and data_type == 'integer':
+            f['maximum'] = max_value
+
+        # ENUM options
+        if choices:
+            f['enum'] = choices
+
+        return f
 
 def get_primitive_type(var):
     if isinstance(var, bool):
@@ -548,10 +576,13 @@ def get_data_type(field):
     # elif isinstance(field, fields.CharField):
         # return 'string', 'string'
     elif rest_framework.VERSION >= '3.0.0':
+        from rest_framework.serializers import ListSerializer, ListField
         if isinstance(field, fields.HiddenField):
             return 'hidden', 'hidden'
-        elif isinstance(field, fields.ListField):
-            return 'array', 'array'
+        elif isinstance(field, ListSerializer):
+            return 'array', field.Meta.list_serializer_class
+        elif isinstance(field, ListField):
+            return 'array', field.child
         elif isinstance(field, fields.JSONField):
             return 'object', 'object'
         elif isinstance(field, fields.DictField):
@@ -712,14 +743,14 @@ class ViewSetMethodIntrospector(BaseMethodIntrospector):
             data_type = 'integer'
             if page_query_param:
                 parameters.append({
-                    'paramType': 'query',
+                    'in': 'query',
                     'name': page_query_param,
                     'description': None,
                 })
                 normalize_data_format(data_type, None, parameters[-1])
             if page_size_query_param:
                 parameters.append({
-                    'paramType': 'query',
+                    'in': 'query',
                     'name': page_size_query_param,
                     'description': None,
                 })
@@ -798,11 +829,11 @@ class YAMLDocstringParser(object):
               description: Foobar long description goes here
               required: true
               type: integer
-              paramType: form
+              in: form
               minimum: 10
               maximum: 100
             - name: other_foo
-              paramType: query
+              in: query
             - name: avatar
               type: file
 
@@ -810,7 +841,7 @@ class YAMLDocstringParser(object):
     defining:
         `parameters_strategy` option to either `merge` or `replace`
 
-    To define different strategies for different `paramType`'s use the
+    To define different strategies for different `in`'s use the
     following syntax:
         parameters_strategy:
             form: replace
@@ -821,7 +852,7 @@ class YAMLDocstringParser(object):
 
     Sometimes method inspector produces wrong list of parameters that
     you might not won't to see in SWAGGER form. To handle this situation
-    define `paramTypes` that should be omitted
+    define `in` that should be omitted
         omit_parameters:
             - form
 
@@ -876,7 +907,7 @@ class YAMLDocstringParser(object):
     parameters:
         - name: CigarSerializer
           type: WriteCigarSerializer
-          paramType: body
+          in: body
 
 
     SAMPLE DOCSTRING:
@@ -909,11 +940,11 @@ class YAMLDocstringParser(object):
           description: Foobar long description goes here
           required: true
           type: string
-          paramType: form
+          in: form
         - name: other_foo
-          paramType: query
+          in: query
         - name: other_bar
-          paramType: query
+          in: query
         - name: avatar
           type: file
 
@@ -921,7 +952,7 @@ class YAMLDocstringParser(object):
         - code: 401
           message: Not authenticated
     """
-    PARAM_TYPES = ['header', 'path', 'form', 'body', 'query']
+    PARAM_TYPES = ['header', 'path', 'formData', 'body', 'query']
     yaml_error = None
 
     def __init__(self, method_introspector):
@@ -996,16 +1027,23 @@ class YAMLDocstringParser(object):
 
         return class_obj
 
+    def load_serializer_class(self, serializer_module, callback):
+        """
+        Load a serializer class from it module path
+        """        
+        if serializer_module:
+            try:
+                return self._load_class(serializer_module, callback)
+            except (ImportError, ValueError):
+                pass
+        return None
+
     def get_serializer_class(self, callback):
         """
         Retrieves serializer class from YAML object
         """
         serializer = self.object.get('serializer', None)
-        try:
-            return self._load_class(serializer, callback)
-        except (ImportError, ValueError):
-            pass
-        return None
+        return self.load_serializer_class(serializer, callback)
 
     def get_extra_serializer_classes(self, callback):
         """
@@ -1028,11 +1066,7 @@ class YAMLDocstringParser(object):
         Retrieves request serializer class from YAML object
         """
         serializer = self.object.get('request_serializer', None)
-        try:
-            return self._load_class(serializer, callback)
-        except (ImportError, ValueError):
-            pass
-        return None
+        return self.load_serializer_class(serializer, callback)
 
     def get_response_serializer_class(self, callback):
         """
@@ -1041,11 +1075,7 @@ class YAMLDocstringParser(object):
         serializer = self.object.get('response_serializer', None)
         if isinstance(serializer, list):
             serializer = serializer[0]
-        try:
-            return self._load_class(serializer, callback)
-        except (ImportError, ValueError):
-            pass
-        return None
+        return self.load_serializer_class(serializer, callback)
 
     def get_response_type(self):
         """
@@ -1065,34 +1095,23 @@ class YAMLDocstringParser(object):
         """
         return self.object.get('produces', [])
 
-    def get_response_messages(self):
+    def get_responses(self, callback):
         """
         Retrieves response error codes from YAML object
         """
-        version = rfs.SWAGGER_SETTINGS['swagger_version'].replace('.', '_')
-        return getattr(self, '_get_response_messages_' + version)()
-
-    def _get_response_messages_1_2(self):
-        messages = []
-        response_messages = self.object.get('responseMessages', [])
-        for message in response_messages:
-            messages.append({
-                'code': message.get('code', None),
-                'message': message.get('message', None),
-                'responseModel': message.get('responseModel', None),
-            })
-        return messages
-
-    def _get_response_messages_2_0(self):
-        messages = []
-        response_messages = self.object.get('responses', {})
-        for code, message in response_messages.items():
-            messages.append({
+        responses = []
+        for response in self.object.get('responses', []):
+            code = response.get('code', None)
+            if code is None:
+                continue
+            schema = response.get('schema', None)           
+            responses.append({
                 'code': code,
-                'message': message.get('description', None),
-                'responseModel': message.get('schema', None),
+                'description': response.get('description', None),
+                'schema': schema,
+                'example': response.get('example', None),
             })
-        return messages
+        return responses
 
     def get_view_mocker(self, callback):
         view_mocker = self.object.get('view_mocker', lambda a: a)
@@ -1100,87 +1119,13 @@ class YAMLDocstringParser(object):
             view_mocker = self._load_class(view_mocker, callback)
         return view_mocker
 
-    def get_item_1_2(self, item, callback):
-        """
-        Retrieves an item from YAML object
-        """        
-        param_type = item.get('paramType', None)
-        if param_type not in self.PARAM_TYPES:
-            param_type = 'form'
-
-        # Data Type & Format
-        # See:
-        # https://github.com/wordnik/swagger-core/wiki/1.2-transition#wiki-additions-2
-        # https://github.com/wordnik/swagger-core/wiki/Parameters
-        data_type = item.get('type', 'string')
-        pytype = item.get('pytype', None)
-        if pytype is not None:
-            try:
-                serializer = self._load_class(pytype, callback)
-                data_type = IntrospectorHelper.get_serializer_name(
-                    serializer)
-            except (ImportError, ValueError):
-                pass
-        if param_type in ['path', 'query', 'header']:
-            if data_type not in BaseMethodIntrospector.PRIMITIVES:
-                data_type = 'string'
-
-        # Data Format
-        data_format = item.get('format', None)
-
-        f = {
-            'paramType': param_type,
-            'name': item.get('name', None),
-            'description': item.get('description', ''),
-            'required': item.get('required', False),
-        }
-
-        normalize_data_format(data_type, data_format, f)
-
-        if item.get('defaultValue', None) is not None:
-            f['defaultValue'] = item.get('defaultValue', None)
-
-        # Allow Multiple Values &f=1,2,3,4
-        if item.get('allowMultiple'):
-            f['allowMultiple'] = True
-
-        if f['type'] == 'array':
-            items = item.get('items', {})
-            elt_data_type = items.get('type', 'string')
-            elt_data_format = items.get('type', 'format')
-            f['items'] = {
-            }
-            normalize_data_format(elt_data_type, elt_data_format, f['items'])
-
-            uniqueItems = item.get('uniqueItems', None)
-            if uniqueItems is not None:
-                f['uniqueItems'] = uniqueItems
-
-        # Min/Max are optional
-        if 'minimum' in item and data_type == 'integer':
-            f['minimum'] = str(item.get('minimum', 0))
-
-        if 'maximum' in item and data_type == 'integer':
-            f['maximum'] = str(item.get('maximum', 0))
-
-        # enum options
-        enum = item.get('enum', [])
-        if enum:
-            f['enum'] = enum
-
-        # File support
-        if f['type'] == 'file':
-            f['paramType'] = 'body'
-
-        return f
-
-    def get_item_2_0(self, item, callback):
+    def get_item(self, item, callback):
         """
         Retrieves an item from YAML object
         """        
         param_type = item.get('in', None)
         if param_type not in self.PARAM_TYPES:
-            param_type = 'form'
+            param_type = 'formData'
 
         f = {
             'in': param_type,
@@ -1222,7 +1167,7 @@ class YAMLDocstringParser(object):
 
             if f['type'] == 'array':
                 items = item.get('items', {})
-                f['items'] = self.get_item_2_0(items, callback)
+                f['items'] = self.get_item(items, callback)
                 if 'maxItems' in item:
                     f['maxItems'] = int(item.get('maxItems'))
                 if 'minItems' in item:
@@ -1265,18 +1210,14 @@ class YAMLDocstringParser(object):
         params = []
         fields = self.object.get('parameters', [])
         
-        if rfs.SWAGGER_SETTINGS['swagger_version'] == '1.2':
-            for field in fields:
-                params.append(self.get_item_1_2(field, callback))
-        else:
-            for field in fields:
-                f = self.get_item_2_0(field, callback)
-                f['allowEmptyValue'] = field.get('allowEmptyValue', False)
-                params.append(f)
+        for field in fields:
+            f = self.get_item(field, callback)
+            f['allowEmptyValue'] = field.get('allowEmptyValue', False)
+            params.append(f)
 
         return params
 
-    def discover_parameters_1_2(self, inspector):
+    def discover_parameters(self, inspector):
         """
         Applies parameters strategy for parameters discovered
         from method and docstring
@@ -1285,39 +1226,7 @@ class YAMLDocstringParser(object):
         docstring_params = self.get_parameters(inspector.callback)
         method_params = inspector.get_parameters()
 
-        # paramType may differ, overwrite first
-        # so strategy can be applied
-        for meth_param in method_params:
-            for doc_param in docstring_params:
-                if doc_param['name'] == meth_param['name']:
-                    if 'paramType' in doc_param:
-                        meth_param['paramType'] = doc_param['paramType']
-
-        for param_type in self.PARAM_TYPES:
-            if self.should_omit_parameters(param_type):
-                continue
-            parameters += self._apply_strategy(
-                param_type, method_params, docstring_params
-            )
-
-        # PATCH requests expects all fields except path fields to be optional
-        if inspector.get_http_method() == "PATCH":
-            for param in parameters:
-                if param['paramType'] != 'path':
-                    param['required'] = False
-
-        return parameters
-
-    def discover_parameters_2_0(self, inspector):
-        """
-        Applies parameters strategy for parameters discovered
-        from method and docstring
-        """
-        parameters = []
-        docstring_params = self.get_parameters(inspector.callback)
-        method_params = inspector.get_parameters()
-
-        # paramType may differ, overwrite first
+        # in may differ, overwrite first
         # so strategy can be applied
         for meth_param in method_params:
             for doc_param in docstring_params:
@@ -1338,16 +1247,6 @@ class YAMLDocstringParser(object):
                 if 'in' in param and param['in'] != 'path':
                     param['required'] = False
 
-        for param in parameters:
-            if 'in' in param:
-                if param['in'] == 'formData':
-                    param['in'] = 'form'                
-                param['paramType'] = param['in']
-                del param['in']
-            if 'defaultValue' in param:
-                param['default'] = param['defaultValue']
-                del param['defaultValue']
-
         return parameters        
 
     def should_omit_parameters(self, param_type):
@@ -1364,17 +1263,17 @@ class YAMLDocstringParser(object):
 
     def _apply_strategy(self, param_type, method_params, docstring_params):
         """
-        Applies strategy for subset of parameters filtered by `paramType`
+        Applies strategy for subset of parameters filtered by `in`
         """
         strategy = self.get_parameters_strategy(param_type=param_type)
         method_params = self._filter_params(
             params=method_params,
-            key='paramType',
+            key='in',
             val=param_type
         )
         docstring_params = self._filter_params(
             params=docstring_params,
-            key='paramType',
+            key='in',
             val=param_type
         )
 
@@ -1422,7 +1321,7 @@ class YAMLDocstringParser(object):
             - `replace` strategy completely overwrites parameters discovered
                 by inspector with the ones defined explicitly in docstring.
 
-        Note: Strategy can be defined per `paramType` so `path` parameters can
+        Note: Strategy can be defined per `in` so `path` parameters can
         use `merge` strategy while `form` parameters will use `replace`
         strategy.
 
