@@ -114,7 +114,7 @@ class SwaggerApiView(APIDocView):
         apis = self.get_apis(path)
         generator = DocumentationGenerator(for_user=request.user)
         return Response({
-            'swagger': '2.0',                
+            'swagger': '2.0',
             'basePath': rfs.SWAGGER_SETTINGS['api_path'],
             'paths': generator.generate(apis),
             'definitions': generator.get_models(apis),
@@ -126,7 +126,8 @@ class SwaggerApiView(APIDocView):
                 'title': '',
                 'version': '',
             }),
-        })  
+            'tags': rfs.SWAGGER_SETTINGS.get('tags', [])
+        })
 
     def get_apis(self, path):
         urlparser = UrlParser()

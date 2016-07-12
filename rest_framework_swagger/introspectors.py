@@ -204,9 +204,10 @@ class BaseMethodIntrospector(object):
     def get_yaml_parser(self):
         parser = YAMLDocstringParser(self)
         parent_parser = YAMLDocstringParser(self.parent)
-        self.check_yaml_methods(parent_parser.object.keys())
         new_object = {}
-        new_object.update(parent_parser.object.get(self.method, {}))
+        #self.check_yaml_methods(parent_parser.object.keys())
+        #new_object.update(parent_parser.object.get(self.method, {}))
+        new_object.update(parent_parser.object)
         new_object.update(parser.object)
         parser.object = new_object
         return parser
@@ -313,7 +314,6 @@ class BaseMethodIntrospector(object):
         params = []
         path_params = self.build_path_parameters()
         body_params = self.build_body_parameters()
-        form_params = self.build_form_parameters()
         query_params = self.build_query_parameters()
         if django_filters is not None:
             query_params.extend(
@@ -323,14 +323,11 @@ class BaseMethodIntrospector(object):
             params += path_params
 
         if self.get_http_method() not in ["GET", "DELETE", "HEAD"]:
-            params += form_params
-
-            if not form_params and body_params is not None:
-                params.append(body_params)
+            params += body_params
         else:
-            for f in form_params:
+            for f in body_params:
                 f['in'] = 'query'
-            params += form_params
+            params += body_params
 
         if query_params:
             params += query_params
@@ -354,19 +351,6 @@ class BaseMethodIntrospector(object):
             return None
 
         return get_view_description(getattr(self.callback, method))
-
-    def build_body_parameters(self):
-        serializer = self.get_request_serializer_class()
-        serializer_name = IntrospectorHelper.get_serializer_name(serializer)
-
-        if serializer_name is None:
-            return
-
-        return {
-            'name': serializer_name,
-            'type': serializer_name,
-            'in': 'body',
-        }
 
     def build_path_parameters(self):
         """
@@ -431,7 +415,7 @@ class BaseMethodIntrospector(object):
 
         return params
 
-    def build_form_parameters(self):
+    def build_body_parameters(self):
         """
         Builds form parameters from the serializer class
         """
@@ -443,6 +427,7 @@ class BaseMethodIntrospector(object):
 
         fields = serializer().get_fields()
 
+        has_form_data = False
         for name, field in fields.items():
 
             if getattr(field, 'read_only', False):
@@ -452,12 +437,31 @@ class BaseMethodIntrospector(object):
             if f is None:
                 continue
 
-            f['in'] = 'formData'
+            if f['type'] == 'file':
+                has_form_data = True
+            else:
+                f['in'] = 'body'
             f['name'] = name
             data.append(f)
 
+        if has_form_data:
+            for f in data:
+                f['in'] = 'formData'
+
         return data
 
+    # def build_body_parameters(self):
+    #     serializer = self.get_request_serializer_class()
+    #     serializer_name = IntrospectorHelper.get_serializer_name(serializer)
+
+    #     if serializer_name is None:
+    #         return
+
+    #     return {
+    #         'name': serializer_name,
+    #         'type': serializer_name,
+    #         'in': 'body',
+    #     }
 
     def _build_form_field(self, field, item_object = False):
         data_type, data_format = get_data_type(field) or ('string', 'string')
@@ -469,9 +473,16 @@ class BaseMethodIntrospector(object):
         # if data_type in self.PRIMITIVES:
             # data_format = self.PRIMITIVES.get(data_type)[0]
 
-        if data_type == 'array':
+        f = {}
+
+        if data_type == 'object':
+            if data_format != 'object':
+                serializer_name = IntrospectorHelper.get_serializer_name(data_format)
+                f['schema'] = {'$ref': "#/definitions/%s" % serializer_name}
+                data_format = 'object'
+        elif data_type == 'array':
             if isinstance(data_format, BaseSerializer) or isinstance(data_format, Serializer):
-                serializer_name = IntrospectorHelper.get_serializer_name(field)
+                serializer_name = IntrospectorHelper.get_serializer_name(data_format)
                 items = {
                     '$ref': "#/definitions/%s" % serializer_name
                 }
@@ -490,11 +501,10 @@ class BaseMethodIntrospector(object):
             # guest data type and format
             data_type, data_format = get_primitive_type(choices[0]) or ('string', 'string')
 
-        description = getattr(field, 'help_text', '') or ''
-        f = {
-            'type': data_type,
-            'default': get_default_value(field),
-        }
+        description = getattr(field, 'help_text', None)
+        if description == "":  # We can hide fields by providing an empty help string
+            return None
+        f['type'] = data_type
 
         if not item_object:
             f['required'] = getattr(field, 'required', False)
@@ -509,8 +519,9 @@ class BaseMethodIntrospector(object):
                 f['format'] = data_format,
 
         # default of null is not allowed, it is specific to type
-        if f['default'] is None:
-            del f['default']
+        default = get_default_value(field)
+        if default is not None:
+            f['default'] = default
 
         # Min/Max values
         max_value = getattr(field, 'max_value', None)
@@ -586,7 +597,11 @@ def get_data_type(field):
         elif isinstance(field, fields.JSONField):
             return 'object', 'object'
         elif isinstance(field, fields.DictField):
-            return 'object', 'object'            
+            return 'object', 'object'
+        elif isinstance(field, BaseSerializer) or isinstance(field, Serializer):
+            return 'object', field
+        elif isinstance(field, fields.FileField):
+            return 'file', 'file'
         else:
             return 'string', 'string'
     else:
@@ -1030,7 +1045,7 @@ class YAMLDocstringParser(object):
     def load_serializer_class(self, serializer_module, callback):
         """
         Load a serializer class from it module path
-        """        
+        """
         if serializer_module:
             try:
                 return self._load_class(serializer_module, callback)
@@ -1083,6 +1098,12 @@ class YAMLDocstringParser(object):
         """
         return self.object.get('type', None)
 
+    def get_tags(self):
+        """
+        Retrieves operation tags
+        """
+        return self.object.get('tags', [])
+
     def get_consumes(self):
         """
         Retrieves media type supported as input
@@ -1104,7 +1125,7 @@ class YAMLDocstringParser(object):
             code = response.get('code', None)
             if code is None:
                 continue
-            schema = response.get('schema', None)           
+            schema = response.get('schema', None)
             responses.append({
                 'code': code,
                 'description': response.get('description', None),
@@ -1122,7 +1143,7 @@ class YAMLDocstringParser(object):
     def get_item(self, item, callback):
         """
         Retrieves an item from YAML object
-        """        
+        """
         param_type = item.get('in', None)
         if param_type not in self.PARAM_TYPES:
             param_type = 'formData'
@@ -1209,7 +1230,7 @@ class YAMLDocstringParser(object):
         """
         params = []
         fields = self.object.get('parameters', [])
-        
+
         for field in fields:
             f = self.get_item(field, callback)
             f['allowEmptyValue'] = field.get('allowEmptyValue', False)
@@ -1247,7 +1268,7 @@ class YAMLDocstringParser(object):
                 if 'in' in param and param['in'] != 'path':
                     param['required'] = False
 
-        return parameters        
+        return parameters
 
     def should_omit_parameters(self, param_type):
         """

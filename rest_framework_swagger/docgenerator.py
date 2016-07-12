@@ -32,7 +32,7 @@ class DocumentationGeneratorBase(object):
             unauthenticated_user_class = getattr(importlib.import_module(module_name), class_name)
             for_user = unauthenticated_user_class()
 
-        self.user = for_user  
+        self.user = for_user
 
         # Serializers defined in docstrings
         self.explicit_serializers = set()
@@ -42,7 +42,7 @@ class DocumentationGeneratorBase(object):
 
         # Response classes defined in docstrings
         self.explicit_response_types = dict()
- 
+
 
     def get_introspector(self, api, apis):
         path = api['path']
@@ -57,7 +57,7 @@ class DocumentationGeneratorBase(object):
         else:
             return APIViewIntrospector(callback, path, pattern, self.user)
 
-    def _get_method_serializer(self, method_inspector):
+    def _get_response_serializer(self, method_inspector):
         """
         Returns serializer used in method.
         Registers custom serializer from docstring in scope.
@@ -121,13 +121,22 @@ class DocumentationGeneratorBase(object):
         for api in apis:
             introspector = self.get_introspector(api, apis)
             for method_introspector in introspector:
-                serializer = self._get_method_serializer(method_introspector)
+                serializer = method_introspector.get_request_serializer_class()
+                if serializer is not None:
+                    serializers.add(serializer)
+                serializer = self._get_response_serializer(method_introspector)
                 if serializer is not None:
                     serializers.add(serializer)
                 extras = method_introspector.get_extra_serializer_classes()
                 for extra in extras:
                     if extra is not None:
                         serializers.add(extra)
+
+                parser = method_introspector.get_yaml_parser()
+                for response in parser.get_responses(method_introspector.callback):
+                    if 'schema' in response and response['schema'] is not None:
+                        serializer = parser.load_serializer_class(response['schema'], method_introspector.callback)
+                        serializers.add(serializer)
 
         return serializers
 
@@ -181,7 +190,7 @@ class DocumentationGeneratorBase(object):
             if getattr(field, 'read_only', False):
                 data['read_only'].append(name)
 
-            if getattr(field, 'required', False):
+            if getattr(field, 'required', True):
                 data['required'].append(name)
 
             f = self._build_serializer_field(field)
@@ -196,18 +205,20 @@ class DocumentationGeneratorBase(object):
     def _build_serializer_field(self, field):
         f = {}
 
-        description = getattr(field, 'help_text', '')
+        description = getattr(field, 'help_text')
+        if description == "":
+            return None
         if description:
             description = description.strip()
         if description:
             f['description'] = description
 
         if isinstance(field, BaseSerializer) or isinstance(field, Serializer):
-            field_serializer = IntrospectorHelper.get_serializer_name(field)                    
+            field_serializer = IntrospectorHelper.get_serializer_name(field)
             if getattr(field, 'write_only', False):
                 field_serializer = "Write{}".format(field_serializer)
-            f['schema'] = {'$ref' : "#/definitions/%s" % field_serializer}
-            f['in'] = 'body'
+            f['$ref'] = "#/definitions/%s" % field_serializer
+            f['type'] = 'object'
         else:
             data_type, data_format = get_data_type(field) or ('string', 'string')
             if data_type == 'hidden':
@@ -232,7 +243,7 @@ class DocumentationGeneratorBase(object):
                     # guest data type and format
                     data_type, data_format = get_primitive_type(choices[0]) or ('string', 'string')
                     f['enum'] = choices
-        
+
             f['type'] = data_type
             if data_format != f['type']:
                 f['format'] = data_format
@@ -254,6 +265,10 @@ class DocumentationGeneratorBase(object):
 
             max_length = getattr(field, 'max_length', -1)
             min_length = getattr(field, 'min_length', -1)
+            if min_length > -1:
+                 f['minLength'] = min_length
+            if max_length > -1:
+                 f['maxLength'] = max_length
 
         return f
 
@@ -302,6 +317,8 @@ class DocumentationGenerator(DocumentationGeneratorBase):
                 operation['description'] += "<pre>YAMLError:\n {err}</pre>".format(
                     err=doc_parser.yaml_error)
 
+            print doc_parser.object
+
             response_messages = doc_parser.get_responses(method_introspector.callback)
             parameters = doc_parser.discover_parameters(
                 inspector=method_introspector)
@@ -334,6 +351,11 @@ class DocumentationGenerator(DocumentationGeneratorBase):
                     'description': 'Default response'
                 }
             operation['responses'] = responses
+
+            # tags
+            tags = doc_parser.get_tags()
+            if tags:
+                operation['tags'] = tags
 
             # operation.consumes
             consumes = doc_parser.get_consumes()
@@ -378,17 +400,18 @@ class DocumentationGenerator(DocumentationGeneratorBase):
             # or require read_only fields in complex input.
 
             serializer_name = IntrospectorHelper.get_serializer_name(serializer)
-            # Writing
-            # no readonly fields
-            w_name = "Write{serializer}".format(serializer=serializer_name)
+            # # Writing
+            # # no readonly fields
+            # w_name = "Write{serializer}".format(serializer=serializer_name)
 
-            w_properties = OrderedDict((k, v) for k, v in data['fields'].items()
-                                       if k not in data['read_only'])
+            # w_properties = OrderedDict((k, v) for k, v in data['fields'].items()
+            #                            if k not in data['read_only'])
 
-            models[w_name] = {
-                'type': 'object',
-                'properties': w_properties,
-            }
+            # models[w_name] = {
+            #     'type': 'object',
+            #     'properties': w_properties,
+            #     'required': [f for f in data['required'] if f in w_properties]
+            # }
 
             # Reading
             # no write_only fields
@@ -400,50 +423,12 @@ class DocumentationGenerator(DocumentationGeneratorBase):
             models[r_name] = {
                 'type': 'object',
                 'properties': r_properties,
+                'required': [f for f in data['required'] if f in r_properties]
             }
 
         models.update(self.explicit_response_types)
         models.update(self.fields_serializers)
         return models
-
-    def _get_method_serializer(self, method_inspector):
-        """
-        Returns serializer used in method.
-        Registers custom serializer from docstring in scope.
-
-        Serializer might be ignored if explicitly told in docstring
-        """
-        doc_parser = method_inspector.get_yaml_parser()
-
-        if doc_parser.get_response_type() is not None:
-            # Custom response class detected
-            return None
-
-        if doc_parser.should_omit_serializer():
-            return None
-
-        serializer = method_inspector.get_response_serializer_class()
-        return serializer
-
-    def _get_serializer_set(self, apis):
-        """
-        Returns a set of serializer classes for a provided list
-        of APIs
-        """
-        serializers = set()
-
-        for api in apis:
-            introspector = self.get_introspector(api, apis)
-            for method_introspector in introspector:
-                serializer = self._get_method_serializer(method_introspector)
-                if serializer is not None:
-                    serializers.add(serializer)
-                extras = method_introspector.get_extra_serializer_classes()
-                for extra in extras:
-                    if extra is not None:
-                        serializers.add(extra)
-
-        return serializers
 
     def _find_field_serializers(self, serializers, found_serializers=set()):
         """

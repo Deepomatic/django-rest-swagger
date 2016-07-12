@@ -23,11 +23,6 @@ class SwaggerSchemeException(Exception):
     def __init__(self, message):
         super(Exception, self).__init__(message)
 
-def validate_info(provided_settings):
-    for key in ['title', 'version']:
-        if key not in provided_settings['info']:
-            raise SwaggerSchemeException("Missing key '%s' for field 'info' in 'DEFAULT_SWAGGER_SETTINGS'. See https://github.com/OAI/OpenAPI-Specification/blob/master/versions/2.0.md#infoObject" % key)
-
 def load_settings(provided_settings):
     global SWAGGER_SETTINGS
     SWAGGER_SETTINGS = provided_settings
