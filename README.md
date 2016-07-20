@@ -29,12 +29,12 @@ This project is built on the [Django REST Framework Docs](https://github.com/mar
         )
     ```
 
-3. Include the rest_framework_swagger URLs to a path of your choice
+3. Include the rest_framework_swagger URLs to the base path of your API. If you support multiple versions of the API and the base path is of the form ```vX.Y```, ```vX``` or ```X.Y```, the versioning will be automatic if the ```version``` field (see below) is empty.
 
     ```python
     patterns = ('',
         ...
-        url(r'^docs/', include('rest_framework_swagger.urls')),
+        url(r'^v0.5/', include('rest_framework_swagger.urls')),
     )
     ```
 
@@ -43,7 +43,6 @@ This project is built on the [Django REST Framework Docs](https://github.com/mar
     ```python
     SWAGGER_SETTINGS = {
         'exclude_namespaces': [],
-        'api_path': '/',
         'enabled_methods': [
             'get',
             'post',
