@@ -317,8 +317,6 @@ class DocumentationGenerator(DocumentationGeneratorBase):
                 operation['description'] += "<pre>YAMLError:\n {err}</pre>".format(
                     err=doc_parser.yaml_error)
 
-            print doc_parser.object
-
             response_messages = doc_parser.get_responses(method_introspector.callback)
             parameters = doc_parser.discover_parameters(
                 inspector=method_introspector)

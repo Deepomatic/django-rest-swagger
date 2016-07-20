@@ -19,6 +19,9 @@ from rest_framework_swagger.docgenerator import DocumentationGenerator
 
 import rest_framework_swagger as rfs
 
+import copy
+import re
+version_re = re.compile('v?(\d+(?:\.\d+)?)')
 
 try:
     JSONRenderer = list(filter(
@@ -110,22 +113,32 @@ class SwaggerUIView(View):
 class SwaggerApiView(APIDocView):
     renderer_classes = (JSONRenderer, )
 
-    def get(self, request, path, *args, **kwargs):
+    def get(self, request, *args, **kwargs):
+        path = request.path
+        path = path[:request.path.find('/api-docs')]
         apis = self.get_apis(path)
         generator = DocumentationGenerator(for_user=request.user)
+
+        info = copy.deepcopy(rfs.SWAGGER_SETTINGS.get('info', {
+            'contact': {},
+            'description': '',
+            'license': {'name': ''},
+            'termsOfService': '',
+            'title': '',
+            'version': '',
+        }))
+
+        if 'version' not in info or info['version'] == '':
+            matches = version_re.search(path)
+            if matches is not None:
+                info['version'] = matches.groups()[0]
+
         return Response({
             'swagger': '2.0',
-            'basePath': rfs.SWAGGER_SETTINGS['api_path'],
+            'basePath': path,
             'paths': generator.generate(apis),
             'definitions': generator.get_models(apis),
-            'info': rfs.SWAGGER_SETTINGS.get('info', {
-                'contact': {},
-                'description': '',
-                'license': {'name': ''},
-                'termsOfService': '',
-                'title': '',
-                'version': '',
-            }),
+            'info': info,
             'tags': rfs.SWAGGER_SETTINGS.get('tags', [])
         })
 
